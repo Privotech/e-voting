@@ -1,0 +1,136 @@
+.review-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  padding: 1rem 0 3rem;
+}
+
+.review-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  padding: 1.5rem 2rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.review-header h1 {
+  font-family: var(--font-heading, sans-serif);
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.review-header p {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.review-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.review-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.review-section h3 {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.5rem;
+}
+
+.selected-candidate {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  background: var(--accent-bg);
+  border: 1px solid var(--primary-color);
+  border-radius: 14px;
+  padding: 1rem 1.25rem;
+}
+
+.selected-candidate img {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--primary-color);
+}
+
+.candidate-details {
+  flex: 1;
+}
+
+.candidate-details h4 {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.candidate-details .party {
+  font-size: 0.85rem;
+  color: var(--primary-color);
+  font-weight: 700;
+}
+
+.btn-edit-selection {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  padding: 0.45rem 0.9rem;
+  font-size: 0.825rem;
+  font-weight: 700;
+  border-radius: 8px;
+}
+
+.btn-edit-selection:hover {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.review-warning {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  border-radius: 14px;
+  padding: 1rem 1.25rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.review-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.btn-cast-vote {
+  background: var(--primary-color);
+  color: #ffffff;
+  border: none;
+  padding: 0.85rem 2.25rem;
+  font-size: 1rem;
+  font-weight: 800;
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  transition: all 0.2s ease;
+}
+
+.btn-cast-vote:hover {
+  background: var(--primary-hover);
+  transform: translateY(-2px);
+}
