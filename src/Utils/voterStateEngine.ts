@@ -1,4 +1,22 @@
-import { candidates, updateCandidateDetails as updateCand, addNewCandidate as addCand } from "./voterCandidates";
+import {
+  candidates,
+  POSITIONS,
+  updateCandidateDetails as updateCand,
+  addNewCandidate as addCand,
+  type ElectionPosition,
+  type LocalCandidate,
+  type NewCandidate,
+} from "./voterCandidates";
+
+export type VoterReceipt = {
+  receiptToken: string;
+  timestamp: string;
+  selections: Record<string, string | null>;
+};
+
+type PositionResult = Pick<LocalCandidate, "id" | "name" | "party" | "partyShort" | "photo"> & {
+  votes: number;
+};
 
 function getStoredValue<T>(key: string, fallback: T): T {
   if (typeof window !== 'undefined') {
@@ -12,7 +30,7 @@ function getStoredValue<T>(key: string, fallback: T): T {
   return fallback;
 }
 
-function saveToLocalStorage(key: string, value: unknown) {
+function writeStoredValue(key: string, value: unknown) {
   if (typeof window !== 'undefined') {
     try {
       localStorage.setItem(key, JSON.stringify(value));
@@ -24,7 +42,7 @@ function saveToLocalStorage(key: string, value: unknown) {
 
 const storedRegisteredVoters = getStoredValue<string[]>("registeredVoters", ["12345678901", "98765432101", "11111111111", "22222222222", "33333333333"]);
 const storedVotedVoters = getStoredValue<string[]>("votedVoters", []);
-const storedVoterReceipts = getStoredValue<Record<string, { receiptToken: string; timestamp: string; selections: Record<string, string> }>>("voterReceipts", {});
+const storedVoterReceipts = getStoredValue<Record<string, VoterReceipt>>("voterReceipts", {});
 const storedVoterInfo = getStoredValue<Record<string, { fullName: string; dob: string; state: string }>>("voterInfo", {});
 const storedVotes = getStoredValue<Record<string, number>>("votes", {});
 
@@ -40,21 +58,18 @@ export const voterInfo = typeof storedVoterInfo === 'object' && storedVoterInfo 
 export const votes = typeof storedVotes === 'object' && storedVotes !== null ? { ...storedVotes } : {};
 
 export const saveToLocalStorage = () => {
-  saveToLocalStorage("registeredVoters", [...registeredVoters]);
-  saveToLocalStorage("votedVoters", [...votedVoters]);
-  saveToLocalStorage("voterReceipts", voterReceipts);
-  saveToLocalStorage("voterInfo", voterInfo);
-  saveToLocalStorage("votes", votes);
+  writeStoredValue("registeredVoters", [...registeredVoters]);
+  writeStoredValue("votedVoters", [...votedVoters]);
+  writeStoredValue("voterReceipts", voterReceipts);
+  writeStoredValue("voterInfo", voterInfo);
+  writeStoredValue("votes", votes);
 };
 
 const initializeVotes = () => {
-  const allPositions = ["president", "governor", "senator", "houseOfReps"];
-  allPositions.forEach((position) => {
-    if (candidates[position]) {
-      candidates[position].forEach((candidate) => {
-        votes[candidate.id] = storedVotes[candidate.id] !== undefined ? storedVotes[candidate.id] : 2;
-      });
-    }
+  POSITIONS.forEach((position) => {
+    candidates[position].forEach((candidate) => {
+      votes[candidate.id] = storedVotes[candidate.id] !== undefined ? storedVotes[candidate.id] : 2;
+    });
   });
 };
 
@@ -129,13 +144,10 @@ export const getVoterReceipt = (nin: string) => voterReceipts[nin] || null;
 export const getVoterInfo = (nin: string) => voterInfo[nin] || null;
 
 export const resetVotesToBaseline = (baseline = 2) => {
-  const allPositions = ["president", "governor", "senator", "houseOfReps"];
-  allPositions.forEach((position) => {
-    if (candidates[position]) {
-      candidates[position].forEach((candidate) => {
-        votes[candidate.id] = baseline;
-      });
-    }
+  POSITIONS.forEach((position) => {
+    candidates[position].forEach((candidate) => {
+      votes[candidate.id] = baseline;
+    });
   });
   votedVoters.clear();
   Object.keys(voterReceipts).forEach((key) => delete voterReceipts[key]);
@@ -144,7 +156,7 @@ export const resetVotesToBaseline = (baseline = 2) => {
 
 const generateReceiptToken = () => `RCP-${new Date().getTime()}-${Math.floor(Math.random() * 10000)}`;
 
-export const castVote = (voterNIN: string, selections: Record<string, string>) => {
+export const castVote = (voterNIN: string, selections: Record<string, string | null>) => {
   if (votedVoters.has(voterNIN)) {
     return {
       success: false,
@@ -185,9 +197,9 @@ export const castVote = (voterNIN: string, selections: Record<string, string>) =
 export const getVoteCount = (candidateId: string) => votes[candidateId] || 0;
 export const getAllVotes = () => ({ ...votes });
 
-export const getPositionResults = (position: string) => {
-  if (!candidates[position]) return [];
-  return candidates[position]
+export const getPositionResults = (position: string): PositionResult[] => {
+  if (!POSITIONS.includes(position as ElectionPosition)) return [];
+  return candidates[position as ElectionPosition]
     .map((candidate) => ({
       id: candidate.id,
       name: candidate.name,
@@ -212,14 +224,13 @@ export const setResultsVisible = (isVisible: boolean) => {
 export const getTurnoutStats = () => {
   const totalVoted = votedVoters.size;
   const totalRegistered = registeredVoters.size;
-  const turnoutPercentage = totalRegistered > 0 ? ((totalVoted / totalRegistered) * 100).toFixed(2) : 0;
+  const turnoutPercentage = totalRegistered > 0 ? ((totalVoted / totalRegistered) * 100).toFixed(2) : "0.00";
   return { totalVoted, totalRegistered, turnoutPercentage };
 };
 
 export const getComprehensiveResults = () => {
-  const positions = ["president", "governor", "senator", "houseOfReps"];
-  const results: Record<string, unknown[]> = {};
-  positions.forEach((pos) => {
+  const results = {} as Record<ElectionPosition, PositionResult[]>;
+  POSITIONS.forEach((pos) => {
     results[pos] = getPositionResults(pos);
   });
   return {
@@ -230,8 +241,8 @@ export const getComprehensiveResults = () => {
   };
 };
 
-export const updateCandidateDetails = (position: string, candidateId: string, updatedFields: Record<string, unknown>) =>
+export const updateCandidateDetails = (position: string, candidateId: string, updatedFields: Partial<LocalCandidate>) =>
   updateCand(position, candidateId, updatedFields, saveToLocalStorage);
 
-export const addNewCandidate = (position: string, newCandidate: Record<string, unknown>) =>
+export const addNewCandidate = (position: string, newCandidate: NewCandidate) =>
   addCand(position, newCandidate, votes, saveToLocalStorage);

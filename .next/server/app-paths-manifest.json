@@ -1,1 +1,17 @@
-{}
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/confirmation/page": "app/confirmation/page.js",
+  "/ballot/page": "app/ballot/page.js",
+  "/guide/page": "app/guide/page.js",
+  "/login/page": "app/login/page.js",
+  "/page": "app/page.js",
+  "/results/page": "app/results/page.js",
+  "/review/page": "app/review/page.js",
+  "/xadmin/page": "app/xadmin/page.js",
+  "/xadmin/dashboard/page": "app/xadmin/dashboard/page.js",
+  "/xadmin/login/page": "app/xadmin/login/page.js",
+  "/signup/page": "app/signup/page.js",
+  "/api/[...path]/route": "app/api/[...path]/route.js",
+  "/health/route": "app/health/route.js"
+}

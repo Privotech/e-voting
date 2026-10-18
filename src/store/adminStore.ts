@@ -30,28 +30,48 @@ interface AdminStore {
 }
 
 const getInitialAdminSession = (): AdminSession | null => {
+  if (typeof window === 'undefined') return null;
+
   try {
     const saved = sessionStorage.getItem('inec_admin_session');
     if (saved) {
       const parsed = JSON.parse(saved);
       const sanitized = sanitizeSessionData(parsed);
-      if (!sanitized || !sanitized.officerId || !sanitized.name) {
+      if (
+        !sanitized?.officerId ||
+        !sanitized.name ||
+        !sanitized.role ||
+        !sanitized.authenticatedAt ||
+        !sanitized.token
+      ) {
         return null;
       }
       if (!validateSessionTimestamp(sanitized.authenticatedAt, securityConfig.adminSessionTimeoutMs)) {
         sessionStorage.removeItem('inec_admin_session');
         return null;
       }
-      return sanitized as AdminSession;
+      return {
+        officerId: sanitized.officerId,
+        name: sanitized.name,
+        role: sanitized.role,
+        authenticatedAt: sanitized.authenticatedAt,
+        token: sanitized.token,
+      };
     }
   } catch (e) {
     console.warn('Failed to parse saved admin session', e);
-    sessionStorage.removeItem('inec_admin_session');
+    try {
+      sessionStorage.removeItem('inec_admin_session');
+    } catch {
+      return null;
+    }
   }
   return null;
 };
 
 const getRegisteredAdmins = (): RegisteredAdmin[] => {
+  if (typeof window === 'undefined') return [];
+
   try {
     const saved = localStorage.getItem('inec_registered_admins');
     if (saved) {

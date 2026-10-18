@@ -1,5 +1,5 @@
-import VoterLayout from '../src/Components/VoterLayout';
-import ElectionGuide from '../src/Pages/ElectionGuide';
+import VoterLayout from '../../src/Components/VoterLayout';
+import ElectionGuide from '../../src/Views/ElectionGuide';
 
 export default function GuidePage() {
   return (

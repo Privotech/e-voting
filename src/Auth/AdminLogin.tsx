@@ -25,7 +25,7 @@ export default function AdminLogin() {
   const [localError, setLocalError] = useState("");
   const [remainingAttempts, setRemainingAttempts] = useState(securityConfig.maxLoginAttempts);
 
-  const redirectPath = (searchParams.get('from') && typeof searchParams.get('from') === 'string') ? searchParams.get('from')! : "/xadmin/dashboard";
+  const redirectPath = searchParams?.get('from') || "/xadmin/dashboard";
 
   useEffect(() => {
     const lockout = getLockoutInfo();
@@ -54,7 +54,7 @@ export default function AdminLogin() {
     const result = await adminLogin(officerId, passkey);
 
     if (result.success) {
-      toast.success(`Welcome, ${result.admin.name}!`);
+      toast.success(`Welcome, ${result.admin?.name || 'administrator'}!`);
       router.push(redirectPath);
     } else {
       const attemptResult = recordFailedAttempt("admin");

@@ -1,5 +1,5 @@
-import VoterDashboardLayout from '../src/Components/VoterDashboardLayout';
-import Review from '../src/Pages/Review';
+import VoterDashboardLayout from '../../src/Components/VoterDashboardLayout';
+import Review from '../../src/Views/Review';
 
 export default function ReviewPage() {
   return (

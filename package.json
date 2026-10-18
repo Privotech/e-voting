@@ -4,29 +4,37 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "server": "node server/index.js",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
   },
+  "postcss": {
+    "plugins": {
+      "tailwindcss": {},
+      "autoprefixer": {}
+    }
+  },
   "dependencies": {
-    "@neondatabase/serverless": "^1.2.0",
     "axios": "^1.7.9",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.460.0",
     "next": "^14.2.18",
+    "pg": "^8.13.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hot-toast": "^2.6.0",
     "react-router-dom": "^6.22.3",
     "recharts": "^2.13.3",
+    "server-only": "^0.0.1",
     "zustand": "^4.5.5"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.4.0",
+    "@types/pg": "^8.11.11",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "autoprefixer": "^10.6.1",

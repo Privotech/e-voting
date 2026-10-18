@@ -10,7 +10,7 @@ export interface Candidate {
   partyShort: string;
   photo: string;
   runningMate?: string;
-  position: string;
+  position?: string;
   isVerified?: boolean;
   verificationLabel?: string;
   manifesto?: string;

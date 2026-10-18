@@ -1,49 +1,39 @@
-# E-Voting System (Executable Next.js Application)
+# E-Voting System
 
-A tamper-evident, production-ready Electronic Voting System built with Next.js, React, and Node.js.
+A TypeScript e-voting application built with the Next.js App Router, React, and Tailwind CSS. The website and its API run in the same Next.js application; no separate Express server is needed.
 
-## Key Features
-- 🔐 **Multi-Factor Voter Authentication** (NIN, Date of Birth, Email)
-- 🗳️ **Tamper-Evident Ballot & Real-Time Review**
-- 🛡️ **Cryptographic Receipt Audit Sandbox**
-- 📊 **Live Election Results & Turnout Visualizations**
-- ⚙️ **Admin Dashboard & Audit Logs**
-- ⚡ **One-Click Startup Scripts** (Linux, macOS, Windows)
+## Features
 
----
+- Multi-factor voter authentication (NIN, date of birth, and email)
+- Tamper-evident ballot and real-time review
+- Cryptographic receipt audit sandbox
+- Live election results and turnout visualizations
+- Admin dashboard and audit logs
 
-## 🚀 Quick Start (One-Click Executable Scripts)
+## Getting Started
 
-### On Linux / macOS:
-```bash
-chmod +x start.sh
-./start.sh
-```
-
-### On Windows:
-Double-click `start.bat` or run:
-```cmd
-start.bat
-```
-
----
-
-## 🛠️ Manual Installation & Running
-
-1. **Install Dependencies**:
+1. Install dependencies:
    ```bash
    npm install
    ```
 
-2. **Run in Development Mode**:
+2. Configure PostgreSQL in `.env.local`:
+   ```bash
+   DATABASE_URL=postgresql://...
+   JWT_SECRET=replace-with-a-long-random-secret
+   ```
+
+   `NEON_DATABASE_URL` is also supported in place of `DATABASE_URL`.
+
+3. Start the development app:
    ```bash
    npm run dev
    ```
 
-3. **Build & Start Production**:
+4. Build and run production:
    ```bash
    npm run build
    npm run start
    ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3000](http://localhost:3000). API endpoints are implemented under `app/api/`; the database schema is initialized automatically when an API first connects to PostgreSQL.

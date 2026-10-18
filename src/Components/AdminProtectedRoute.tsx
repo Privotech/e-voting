@@ -20,8 +20,13 @@ export default function AdminProtectedRoute({ children }: { children?: React.Rea
 
   const lockout = getLockoutInfo();
 
+  useEffect(() => {
+    if (!isAdminAuthenticated) {
+      router.replace(`/xadmin/login?from=${encodeURIComponent(pathname || '/')}`);
+    }
+  }, [isAdminAuthenticated, pathname, router]);
+
   if (!isAdminAuthenticated) {
-    router.replace(`/xadmin/login?from=${encodeURIComponent(pathname)}`);
     return null;
   }
 

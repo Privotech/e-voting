@@ -28,8 +28,13 @@ const getInitialVoterSession = (): VoterSession | null => {
 
     const data = { nin, dob, state };
     const sanitized = sanitizeSessionData(data);
-    if (!sanitized || !sanitized.nin) return null;
-    return sanitized as VoterSession;
+    if (!sanitized?.nin || !sanitized.dob || !sanitized.state) return null;
+    return {
+      nin: sanitized.nin,
+      dob: sanitized.dob,
+      state: sanitized.state,
+      fullName: sanitized.fullName,
+    };
   } catch {
     return null;
   }

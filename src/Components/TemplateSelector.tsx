@@ -1,12 +1,13 @@
 "use client";
 
 import React from 'react';
-import { useTheme } from '../Context/ThemeContext';
+import { TEMPLATES, useTheme, type ThemeId } from '../Context/ThemeContext';
 import { ShieldCheck, Palette, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function TemplateSelector() {
-  const { currentTheme, changeTheme, templates, selectorOpen, toggleSelector } = useTheme();
+  const { currentTheme, changeTheme, selectorOpen, toggleSelector } = useTheme();
+  const templates = TEMPLATES;
 
   const handleQuickChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newThemeId = e.target.value;
@@ -14,14 +15,14 @@ export default function TemplateSelector() {
       toggleSelector();
       return;
     }
-    changeTheme(newThemeId);
     const themeObj = templates.find((t) => t.id === newThemeId);
     if (themeObj) {
+      changeTheme(themeObj.id);
       toast.success(`Theme updated to ${themeObj.name}`);
     }
   };
 
-  const handleSelectTheme = (themeId: string) => {
+  const handleSelectTheme = (themeId: ThemeId) => {
     changeTheme(themeId);
     const themeObj = templates.find((t) => t.id === themeId);
     if (themeObj) {

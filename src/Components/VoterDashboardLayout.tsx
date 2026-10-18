@@ -69,10 +69,10 @@ export default function VoterDashboardLayout({ children }: VoterDashboardLayoutP
 
         <div className="sidebar-user-card">
           <div className="user-avatar">
-            <span>{voter?.fullName?.charAt(0) || voter?.name?.charAt(0) || "V"}</span>
+            <span>{voter?.fullName?.charAt(0) || "V"}</span>
           </div>
           <div className="user-info">
-            <p className="user-name">{voter?.fullName || voter?.name || "Voter"}</p>
+            <p className="user-name">{voter?.fullName || "Voter"}</p>
             <p className="user-nin">NIN: {voter?.nin?.substring(0, 4)}****{voter?.nin?.substring(8)}</p>
           </div>
           <div className={`status-badge ${hasVoted ? 'voted' : 'eligible'}`}>

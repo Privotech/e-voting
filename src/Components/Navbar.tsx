@@ -86,7 +86,7 @@ const Navbar = () => {
             <div className="voter-profile-menu">
               <div className="voter-chip">
                 <span className="voter-dot"></span>
-                <span className="voter-name">{voter.fullName || voter.name || `NIN: ${voter.nin}`}</span>
+                <span className="voter-name">{voter.fullName || `NIN: ${voter.nin}`}</span>
               </div>
               <button onClick={handleLogout} className="btn-logout">
                 Logout

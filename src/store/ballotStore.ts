@@ -175,7 +175,7 @@ export const useBallotStore = create<BallotStore>((set, get) => ({
           message: data.message || 'Vote cast successfully!',
         };
       } else {
-        const localResult = castVoteLocal(voterNIN, selections);
+        const localResult = castVoteLocal(voterNIN, selections as unknown as Record<string, string>);
         if (localResult.success) {
           set({
             isSubmitting: false,
@@ -201,7 +201,7 @@ export const useBallotStore = create<BallotStore>((set, get) => ({
       }
     } catch (err) {
       console.warn('API ballot submission fallback to local state engine:', err);
-      const localResult = castVoteLocal(voterNIN, selections);
+      const localResult = castVoteLocal(voterNIN, selections as unknown as Record<string, string>);
       if (localResult.success) {
         set({
           isSubmitting: false,
