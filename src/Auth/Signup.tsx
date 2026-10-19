@@ -1,13 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate, Link } from "../Utils/nextNavigation";
 import axios from "axios";
-import { registerVoter } from "../Utils/voterData";
 import { CheckCircle, AlertCircle } from "lucide-react";
 import toast from "react-hot-toast";
-import { getLockoutInfo, recordFailedAttempt, clearAttempts } from "../Utils/authSecurity";
-import securityConfig from "../Utils/securityConfig";
 
 interface FormData {
   fullName: string;
@@ -80,7 +77,6 @@ export default function Signup() {
       const response = await axios.post("/api/voters/register", formData);
       if (response.data && response.data.success) {
         setSuccess(true);
-        clearAttempts("voter");
         toast.success("Voter profile registered successfully!");
         setTimeout(() => {
           navigate("/login");
@@ -91,19 +87,10 @@ export default function Signup() {
         toast.error(msg);
       }
     } catch (err) {
-      const localRes = registerVoter(formData.nin, formData.dob, formData.state, formData.fullName);
-      if (localRes.success) {
-        setSuccess(true);
-        clearAttempts("voter");
-        toast.success("Voter profile registered successfully!");
-        setTimeout(() => {
-          navigate("/login");
-        }, 1800);
-      } else {
-        const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message || localRes.message || "An error occurred during registration.";
-        setError(msg);
-        toast.error(msg);
-      }
+      const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message ||
+        "Public voter registration is unavailable. Contact the election authority to be added to the verified voter roll.";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }

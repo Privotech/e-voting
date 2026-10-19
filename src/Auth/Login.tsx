@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "../Utils/nextNavigation";
 import useVoterStore from "../store/voterStore";
-import { Zap, AlertCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLockoutInfo, recordFailedAttempt, clearAttempts } from "../Utils/authSecurity";
 import securityConfig from "../Utils/securityConfig";
@@ -39,14 +39,6 @@ export default function Login() {
       setRemainingAttempts(securityConfig.maxLoginAttempts);
     }
   }, []);
-
-  const fillDemoAccount = (nin: string, dob: string, state: string) => {
-    setFormData({ nin, dob, state });
-    setValidationErrors({});
-    if (securityConfig.isDemo) {
-      toast.success("Demo credentials loaded");
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,31 +82,6 @@ export default function Login() {
           <h1 className="auth-title">Voter Identification</h1>
           <p className="auth-subtitle">Verify your National Identification details to access your official ballot.</p>
         </div>
-
-        {securityConfig.isDemo && (
-          <div className="demo-credentials-box">
-            <span className="demo-title">
-              <Zap size={16} style={{ display: "inline", verticalAlign: "middle", marginRight: "4px" }} />
-              Quick Demo Login:
-            </span>
-            <div className="demo-chips">
-              <button
-                type="button"
-                className="demo-chip"
-                onClick={() => fillDemoAccount("12345678901", "1995-05-15", "Lagos")}
-              >
-                Demo Voter (Lagos)
-              </button>
-              <button
-                type="button"
-                className="demo-chip"
-                onClick={() => fillDemoAccount("98765432101", "1990-08-20", "FCT")}
-              >
-                Test Voter (FCT)
-              </button>
-            </div>
-          </div>
-        )}
 
         <form onSubmit={handleSubmit} className="auth-form">
           <div className="form-group">

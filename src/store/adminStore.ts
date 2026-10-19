@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { appendAuditLog } from '../Utils/auditLogUtils';
-import { hashPassword, verifyPassword, recordFailedAttempt, clearAttempts, getLockoutInfo, validateSessionTimestamp, sanitizeSessionData } from '../Utils/authSecurity';
+import { recordFailedAttempt, clearAttempts, getLockoutInfo, validateSessionTimestamp, sanitizeSessionData } from '../Utils/authSecurity';
 import securityConfig from '../Utils/securityConfig';
 
 interface AdminSession {
@@ -42,7 +42,8 @@ const getInitialAdminSession = (): AdminSession | null => {
         !sanitized.name ||
         !sanitized.role ||
         !sanitized.authenticatedAt ||
-        !sanitized.token
+        !sanitized.token ||
+        sanitized.token.split(".").length !== 3
       ) {
         return null;
       }
@@ -69,20 +70,6 @@ const getInitialAdminSession = (): AdminSession | null => {
   return null;
 };
 
-const getRegisteredAdmins = (): RegisteredAdmin[] => {
-  if (typeof window === 'undefined') return [];
-
-  try {
-    const saved = localStorage.getItem('inec_registered_admins');
-    if (saved) {
-      return JSON.parse(saved);
-    }
-  } catch (e) {
-    console.warn('Failed to parse registered admins', e);
-  }
-  return [];
-};
-
 const initialSession = getInitialAdminSession();
 
 export const useAdminStore = create<AdminStore>((set, get) => ({
@@ -91,55 +78,10 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
   loading: false,
   error: null,
 
-  registerAdmin: async (adminData) => {
-    set({ loading: true, error: null });
-
-    await new Promise((resolve) => setTimeout(resolve, 400));
-
-    const registered = getRegisteredAdmins();
-
-    const exists = registered.find(
-      (a) => a.officerId.trim().toUpperCase() === adminData.officerId
-    );
-
-    if (exists) {
-      set({ loading: false, error: "An administrator with this Officer ID already exists." });
-      return { success: false, message: "An administrator with this Officer ID already exists." };
-    }
-
-    const hashedPasskey = await hashPassword(adminData.passkey);
-
-    const newAdmin: RegisteredAdmin = {
-      officerId: adminData.officerId,
-      name: adminData.name,
-      role: adminData.role,
-      passkeyHash: hashedPasskey,
-      registeredAt: new Date().toLocaleTimeString() + " WAT",
-    };
-
-    registered.push(newAdmin);
-
-    try {
-      localStorage.setItem('inec_registered_admins', JSON.stringify(registered));
-    } catch (e) {
-      console.warn('Could not store registered admin', e);
-      set({ loading: false, error: "Failed to save registration. Storage may be disabled." });
-      return { success: false, message: "Failed to save registration." };
-    }
-
-    try {
-      appendAuditLog({
-        category: "System Integrity",
-        action: "ADMIN_REGISTRATION",
-        actor: `${newAdmin.name} (${newAdmin.officerId})`,
-        details: `New administrator registered with role: ${newAdmin.role}.`
-      });
-    } catch (err) {
-      console.warn("Failed to append audit log for admin registration", err);
-    }
-
-    set({ loading: false, error: null });
-    return { success: true, admin: newAdmin };
+  registerAdmin: async () => {
+    const message = "Administrator accounts must be provisioned by an authorized operator.";
+    set({ loading: false, error: message });
+    return { success: false, message };
   },
 
   adminLogin: async (officerId, passkey) => {
@@ -152,78 +94,37 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
       return { success: false, message: msg, locked: true };
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 600));
-
-    const cleanId = officerId.trim().toUpperCase();
-    const cleanKey = passkey.trim();
-
-    let matched: { id: string; name: string; role: string } | null = null;
-
-    if (securityConfig.isDemo) {
-      const validCredentials = [
-        { id: 'INEC-ADM-2026', key: 'inec2026admin', name: 'Dr. Mahmood Yakubu', role: 'Chief Electoral Officer' },
-        { id: 'ADMIN@INEC.GOV.NG', key: 'admin123', name: 'National Electoral Administrator', role: 'System Admin' },
-        { id: 'OFFICER-LAGOS-01', key: 'lagos2026', name: 'Lagos Resident Electoral Commissioner', role: 'State Electoral Commissioner' },
-      ];
-
-      matched = validCredentials.find(c => c.id === cleanId && c.key === cleanKey) || null;
-    }
-
-    if (!matched && securityConfig.isDemo) {
-      const registered = getRegisteredAdmins();
-      const regMatch = registered.find(c => c.officerId === cleanId);
-      if (regMatch && await verifyPassword(passkey, regMatch.passkeyHash)) {
-        matched = { id: regMatch.officerId, name: regMatch.name, role: regMatch.role };
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: officerId.trim(), password: passkey }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.isAdmin !== true || typeof data.token !== "string") {
+        throw new Error(response.ok ? "This account is not authorized for administrator access." : data.message || "Invalid administrator credentials.");
       }
-    }
 
-    if (matched) {
       const adminData: AdminSession = {
-        officerId: matched.id,
-        name: matched.name,
-        role: matched.role,
-        authenticatedAt: new Date().toLocaleTimeString() + " WAT",
-        token: `INEC-JWT-${Math.random().toString(36).substring(2, 10).toUpperCase()}`
+        officerId: officerId.trim(),
+        name: typeof data.name === "string" ? data.name : officerId.trim(),
+        role: "System Administrator",
+        authenticatedAt: new Date().toISOString(),
+        token: data.token,
       };
-
-      try {
-        sessionStorage.setItem('inec_admin_session', JSON.stringify(adminData));
-      } catch (e) {
-        console.warn('Could not store admin session', e);
-      }
-
+      sessionStorage.setItem('inec_admin_session', JSON.stringify(adminData));
       set({ admin: adminData, isAdminAuthenticated: true, loading: false, error: null });
       clearAttempts();
-
-      try {
-        appendAuditLog({
-          category: "System Integrity",
-          action: "ADMIN_LOGIN_SUCCESS",
-          actor: `${adminData.name} (${adminData.officerId})`,
-          details: `Authenticated as ${adminData.role} into National Election Management Dashboard.`
-        });
-      } catch (err) {
-        console.warn("Failed to append audit log for admin login", err);
-      }
-
       return { success: true, admin: adminData };
-    } else {
+    } catch (error) {
+      const failureMessage = error instanceof Error
+        ? error.message
+        : "Unable to authenticate with the administrator service.";
       const result = recordFailedAttempt("admin");
       const errorMsg = result.locked
         ? "Too many failed attempts. Account temporarily locked."
-        : "Invalid Electoral Officer ID or Security Passcode. Access Denied.";
+        : failureMessage;
       set({ loading: false, error: errorMsg });
-
-      try {
-        appendAuditLog({
-          category: "System Integrity",
-          action: "UNAUTHORIZED_ADMIN_ATTEMPT",
-          actor: cleanId || "Unknown Entity",
-          details: `Failed administrative authentication attempt for Officer ID "${cleanId}".`
-        });
-      } catch (err) {
-        console.warn("Failed to log unauthorized attempt", err);
-      }
 
       return { success: false, message: errorMsg, locked: result.locked };
     }

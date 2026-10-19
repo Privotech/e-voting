@@ -83,32 +83,6 @@ export default function AdminLogin() {
           </p>
         </div>
 
-        {securityConfig.isDemo && (
-          <div className="admin-demo-box">
-            <div className="admin-demo-title">
-              Quick Demo Officer Credentials:
-            </div>
-            <div className="admin-demo-buttons">
-              <button
-                type="button"
-                className="btn-admin-demo"
-                onClick={() => { setOfficerId("INEC-ADM-2026"); setPasskey("inec2026admin"); setValidationErrors({}); }}
-              >
-                <strong>Chief Electoral Officer</strong>
-                <small>ID: INEC-ADM-2026</small>
-              </button>
-              <button
-                type="button"
-                className="btn-admin-demo"
-                onClick={() => { setOfficerId("OFFICER-LAGOS-01"); setPasskey("lagos2026"); setValidationErrors({}); }}
-              >
-                <strong>Lagos State REC</strong>
-                <small>ID: OFFICER-LAGOS-01</small>
-              </button>
-            </div>
-          </div>
-        )}
-
         {lockout && (
           <div className="admin-error-box">
             <AlertTriangle size={18} />

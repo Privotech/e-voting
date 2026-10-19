@@ -1,7 +1,8 @@
 import "server-only";
-import { randomInt } from "node:crypto";
-import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
+import { randomBytes } from "node:crypto";
+import type { Candidate as PrismaCandidate, Voter as PrismaVoter } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { prisma } from "@/lib/prisma";
 
 export const POSITIONS = ["president", "governor", "senator", "houseOfReps"] as const;
 export type Position = (typeof POSITIONS)[number];
@@ -29,12 +30,9 @@ export interface Voter {
   receiptToken: string | null;
 }
 
-interface VoterRow extends Voter {
+export interface VoterCredentials extends Voter {
   password: string;
 }
-
-type SqlValue = string | number | boolean | Date | null;
-type SafeVoter = Omit<VoterRow, "password">;
 
 const defaultCandidates: Candidate[] = [
   { id: "pres-001", name: "John Smith", party: "Democratic Party", partyShort: "DP", photo: "https://via.placeholder.com/150?text=John+Smith&bg=0066cc&text_color=ffffff", position: "president", voteCount: 0 },
@@ -51,66 +49,44 @@ const defaultCandidates: Candidate[] = [
   { id: "house-003", name: "Maria Garcia", party: "Independent", partyShort: "IND", photo: "https://via.placeholder.com/150?text=Maria+Garcia&bg=00cc00&text_color=ffffff", position: "houseOfReps", voteCount: 0 },
 ];
 
-const globalDatabase = globalThis as typeof globalThis & {
-  votingPool?: Pool;
-  votingSchemaPromise?: Promise<void>;
-};
-
-export function getPool(): Pool {
-  if (globalDatabase.votingPool) {
-    return globalDatabase.votingPool;
-  }
-
-  const connectionString = process.env.DATABASE_URL || process.env.NEON_DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("Set DATABASE_URL or NEON_DATABASE_URL to connect the voting database.");
-  }
-
-  const pool = new Pool({
-    connectionString,
-    ssl: connectionString.includes("localhost") ? undefined : { rejectUnauthorized: false },
-    max: 10,
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 5_000,
-  });
-  pool.on("error", (error) => {
-    console.error("Unexpected PostgreSQL client error:", error.message);
-  });
-  globalDatabase.votingPool = pool;
-  return pool;
-}
-
-export async function query<Row extends QueryResultRow = QueryResultRow>(
-  text: string,
-  params: SqlValue[] = [],
-): Promise<QueryResult<Row>> {
-  return getPool().query<Row>(text, params);
-}
-
-function toSafeVoter(row: VoterRow | undefined): SafeVoter | null {
+function toSafeVoter(row: PrismaVoter | null): Voter | null {
   if (!row) return null;
-  const { password: _password, ...voter } = row;
-  return voter;
+  return {
+    id: String(row.id),
+    nin: row.nin,
+    name: row.name,
+    dob: row.dob,
+    email: row.email,
+    state: row.state,
+    isAdmin: row.isAdmin,
+    hasVoted: row.hasVoted,
+    votedAt: row.votedAt,
+    receiptToken: row.receiptToken,
+  };
 }
 
-export async function getVoterById(id: string): Promise<SafeVoter | null> {
-  const result = await query<VoterRow>("SELECT * FROM voters WHERE id = $1", [id]);
-  return toSafeVoter(result.rows[0]);
+function isPosition(value: string): value is Position {
+  return POSITIONS.some((position) => position === value);
 }
 
-export async function getVoterByNIN(nin: string): Promise<SafeVoter | null> {
-  const result = await query<VoterRow>("SELECT * FROM voters WHERE nin = $1", [nin]);
-  return toSafeVoter(result.rows[0]);
+export async function getVoterById(id: string): Promise<Voter | null> {
+  if (!/^\d+$/.test(id)) return null;
+  const voter = await prisma.voter.findUnique({ where: { id: Number(id) } });
+  return toSafeVoter(voter);
 }
 
-export async function getVoterByEmail(email: string): Promise<SafeVoter | null> {
-  const result = await query<VoterRow>("SELECT * FROM voters WHERE email = $1", [email]);
-  return toSafeVoter(result.rows[0]);
+export async function getVoterByNIN(nin: string): Promise<Voter | null> {
+  return toSafeVoter(await prisma.voter.findUnique({ where: { nin } }));
 }
 
-export async function getVoterCredentialsByEmail(email: string): Promise<VoterRow | null> {
-  const result = await query<VoterRow>("SELECT * FROM voters WHERE email = $1", [email]);
-  return result.rows[0] ?? null;
+export async function getVoterByEmail(email: string): Promise<Voter | null> {
+  return toSafeVoter(await prisma.voter.findUnique({ where: { email } }));
+}
+
+export async function getVoterCredentialsByEmail(email: string): Promise<VoterCredentials | null> {
+  const voter = await prisma.voter.findUnique({ where: { email } });
+  if (!voter) return null;
+  return { ...toSafeVoter(voter)!, password: voter.password };
 }
 
 export async function registerVoter(input: {
@@ -121,16 +97,22 @@ export async function registerVoter(input: {
   password: string;
   state: string;
   isAdmin?: boolean;
-}): Promise<SafeVoter> {
+}): Promise<Voter> {
   const hashedPassword = await bcrypt.hash(input.password || "123456", 10);
-  const result = await query<VoterRow>(
-    `INSERT INTO voters (id, nin, name, dob, email, password, state, "isAdmin", "hasVoted")
-     VALUES ($1, $1, $2, $3, $4, $5, $6, $7, false) RETURNING *`,
-    [input.nin, input.name, input.dob, input.email, hashedPassword, input.state, input.isAdmin ?? false],
-  );
-  const voter = toSafeVoter(result.rows[0]);
-  if (!voter) throw new Error("The voter record was not returned after registration.");
-  return voter;
+  const voter = await prisma.voter.create({
+    data: {
+      nin: input.nin,
+      name: input.name,
+      dob: input.dob,
+      email: input.email,
+      password: hashedPassword,
+      state: input.state,
+      isAdmin: input.isAdmin ?? false,
+    },
+  });
+  const safeVoter = toSafeVoter(voter);
+  if (!safeVoter) throw new Error("The voter record was not returned after registration.");
+  return safeVoter;
 }
 
 export async function validateVoter(input: { nin: string; dob: string; state: string }) {
@@ -158,119 +140,120 @@ export async function validateVoter(input: { nin: string; dob: string; state: st
       dob: voter.dob,
       state: voter.state,
       hasVoted: voter.hasVoted,
-      isAdmin: voter.isAdmin || false,
+      isAdmin: voter.isAdmin,
     },
   };
 }
 
 export async function getCandidates(position?: string): Promise<Candidate[]> {
-  const result = position
-    ? await query<Candidate>("SELECT * FROM candidates WHERE position = $1 ORDER BY name ASC", [position])
-    : await query<Candidate>("SELECT * FROM candidates ORDER BY position ASC, name ASC");
-  return result.rows;
+  const where = position === undefined
+    ? undefined
+    : isPosition(position) ? { position } : { position: "__invalid_position__" };
+  const candidates = await prisma.candidate.findMany({
+    where,
+    orderBy: position ? { name: "asc" } : [{ position: "asc" }, { name: "asc" }],
+  });
+  return candidates.map((candidate: PrismaCandidate) => {
+    if (!isPosition(candidate.position)) {
+      throw new Error(`Candidate ${candidate.id} has an invalid election position.`);
+    }
+    return { ...candidate, position: candidate.position };
+  });
 }
 
 export async function initializeCandidates(candidates: Candidate[]): Promise<void> {
   if (candidates.length === 0) return;
-  const values: string[] = [];
-  const params: SqlValue[] = [];
-  candidates.forEach((candidate, index) => {
-    const offset = index * 7;
-    values.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`);
-    params.push(candidate.id, candidate.name, candidate.party, candidate.partyShort, candidate.photo, candidate.position, candidate.voteCount || 0);
+  await prisma.candidate.createMany({
+    data: candidates.map((candidate) => ({
+      id: candidate.id,
+      name: candidate.name,
+      party: candidate.party,
+      partyShort: candidate.partyShort,
+      photo: candidate.photo,
+      position: candidate.position,
+      voteCount: candidate.voteCount,
+    })),
+    skipDuplicates: true,
   });
-  await query(
-    `INSERT INTO candidates (id, name, party, "partyShort", photo, position, "voteCount")
-     VALUES ${values.join(", ")} ON CONFLICT (id) DO NOTHING`,
-    params,
-  );
 }
 
 export type BallotSelections = Partial<Record<Position, string | null>>;
 
 export async function castBallot(input: { voterNIN: string; selections: BallotSelections }) {
-  const client: PoolClient = await getPool().connect();
-  let transactionOpen = false;
+  const timestamp = new Date();
+  const receiptToken = `RCP-${randomBytes(24).toString("base64url")}`;
 
-  try {
-    await client.query("BEGIN");
-    transactionOpen = true;
+  if (!POSITIONS.every((position) => typeof input.selections[position] === "string")) {
+    return { success: false, message: "A valid candidate must be selected for every ballot position." };
+  }
 
-    const voterResult = await client.query<{ "hasVoted": boolean }>(
-      'SELECT "hasVoted" FROM voters WHERE nin = $1 FOR UPDATE',
-      [input.voterNIN],
-    );
-    if (!voterResult.rows[0]) {
-      await client.query("ROLLBACK");
-      transactionOpen = false;
-      return { success: false, message: "Voter not found." };
-    }
-    if (voterResult.rows[0].hasVoted) {
-      await client.query("ROLLBACK");
-      transactionOpen = false;
+  return prisma.$transaction(async (transaction) => {
+    const voter = await transaction.voter.findUnique({
+      where: { nin: input.voterNIN },
+      select: { id: true, hasVoted: true },
+    });
+    if (!voter) return { success: false, message: "Voter not found." };
+    if (voter.hasVoted) {
       return { success: false, message: "You have already voted. Duplicate voting is not allowed." };
     }
 
-    const timestamp = new Date();
-    const receiptToken = `RCP-${timestamp.getTime()}-${randomInt(0, 10_000)}`;
-    const selections = input.selections;
-    await client.query(
-      `INSERT INTO votes (voter_nin, receipt_token, president, governor, senator, house_of_reps, timestamp)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [
-        input.voterNIN,
-        receiptToken,
-        selections.president ?? null,
-        selections.governor ?? null,
-        selections.senator ?? null,
-        selections.houseOfReps ?? null,
-        timestamp,
-      ],
-    );
+    const claim = await transaction.voter.updateMany({
+      where: { id: voter.id, hasVoted: false },
+      data: { hasVoted: true, votedAt: timestamp, receiptToken },
+    });
+    if (claim.count !== 1) {
+      return { success: false, message: "You have already voted. Duplicate voting is not allowed." };
+    }
 
-    for (const candidateId of Object.values(selections)) {
-      if (candidateId) {
-        await client.query('UPDATE candidates SET "voteCount" = "voteCount" + 1 WHERE id = $1', [candidateId]);
+    await transaction.vote.create({
+      data: {
+        voterNin: input.voterNIN,
+        receiptToken,
+        president: input.selections.president ?? null,
+        governor: input.selections.governor ?? null,
+        senator: input.selections.senator ?? null,
+        houseOfReps: input.selections.houseOfReps ?? null,
+        timestamp,
+      },
+    });
+
+    for (const position of POSITIONS) {
+      const candidateId = input.selections[position];
+      if (!candidateId) continue;
+      const update = await transaction.candidate.updateMany({
+        where: { id: candidateId, position },
+        data: { voteCount: { increment: 1 } },
+      });
+      if (update.count !== 1) {
+        throw new Error(`The selected candidate for ${position} does not exist.`);
       }
     }
 
-    await client.query(
-      'UPDATE voters SET "hasVoted" = true, "votedAt" = NOW(), "receiptToken" = $1 WHERE nin = $2',
-      [receiptToken, input.voterNIN],
-    );
-    await client.query("COMMIT");
-    transactionOpen = false;
     return { success: true, message: "Vote cast successfully!", receiptToken };
-  } catch (error) {
-    if (transactionOpen) {
-      await client.query("ROLLBACK");
-    }
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 export async function getResults() {
-  const results = {} as Record<Position, Array<Omit<Candidate, "position" | "voteCount"> & { votes: number }>>;
-  for (const position of POSITIONS) {
-    const result = await query<Omit<Candidate, "position">>(
-      `SELECT id, name, party, "partyShort", photo, "voteCount"
-       FROM candidates WHERE position = $1 ORDER BY "voteCount" DESC, name ASC`,
-      [position],
-    );
-    results[position] = result.rows.map(({ voteCount, ...candidate }) => ({
-      ...candidate,
-      votes: voteCount || 0,
-    }));
-  }
-
-  const [voted, registered] = await Promise.all([
-    query<{ total: string }>('SELECT COUNT(*) AS total FROM voters WHERE "hasVoted" = true'),
-    query<{ total: string }>("SELECT COUNT(*) AS total FROM voters"),
+  const [candidateGroups, totalVoted, totalRegistered] = await Promise.all([
+    Promise.all(POSITIONS.map((position) => prisma.candidate.findMany({
+      where: { position },
+      orderBy: [{ voteCount: "desc" }, { name: "asc" }],
+    }))),
+    prisma.voter.count({ where: { hasVoted: true } }),
+    prisma.voter.count(),
   ]);
-  const totalVoted = Number.parseInt(voted.rows[0]?.total ?? "0", 10);
-  const totalRegistered = Number.parseInt(registered.rows[0]?.total ?? "0", 10);
+
+  const results = Object.fromEntries(POSITIONS.map((position, index) => [
+    position,
+    candidateGroups[index].map((candidate) => ({
+      id: candidate.id,
+      name: candidate.name,
+      party: candidate.party,
+      partyShort: candidate.partyShort,
+      photo: candidate.photo,
+      votes: candidate.voteCount,
+    })),
+  ])) as Record<Position, Array<Omit<Candidate, "position" | "voteCount"> & { votes: number }>>;
   const turnoutPercentage = totalRegistered > 0
     ? ((totalVoted / totalRegistered) * 100).toFixed(2)
     : "0.00";
@@ -279,96 +262,31 @@ export async function getResults() {
 }
 
 export async function getVoteByReceiptToken(token: string) {
-  const result = await query<{
-    receiptToken: string;
-    president: string | null;
-    governor: string | null;
-    senator: string | null;
-    houseOfReps: string | null;
-    timestamp: Date;
-  }>(
-    `SELECT receipt_token AS "receiptToken", president, governor, senator,
-     house_of_reps AS "houseOfReps", timestamp FROM votes WHERE receipt_token = $1`,
-    [token],
-  );
-  return result.rows[0] ?? null;
+  const vote = await prisma.vote.findUnique({ where: { receiptToken: token } });
+  if (!vote) return null;
+  return {
+    receiptToken: vote.receiptToken,
+    voterNin: vote.voterNin,
+    president: vote.president,
+    governor: vote.governor,
+    senator: vote.senator,
+    houseOfReps: vote.houseOfReps,
+    timestamp: vote.timestamp,
+  };
 }
 
 export async function isAvailable(): Promise<boolean> {
   try {
-    await query("SELECT 1");
+    await prisma.$queryRaw`SELECT 1`;
     return true;
   } catch {
     return false;
   }
 }
 
-async function createSchema(): Promise<void> {
-  await query(`
-    CREATE TABLE IF NOT EXISTS voters (
-      id VARCHAR(255) PRIMARY KEY,
-      nin VARCHAR(255) UNIQUE NOT NULL,
-      name VARCHAR(255) NOT NULL,
-      email VARCHAR(255) UNIQUE,
-      dob VARCHAR(255) NOT NULL,
-      state VARCHAR(255) NOT NULL,
-      password VARCHAR(255) NOT NULL,
-      "isAdmin" BOOLEAN DEFAULT FALSE,
-      "hasVoted" BOOLEAN DEFAULT FALSE,
-      "votedAt" TIMESTAMP,
-      "receiptToken" VARCHAR(255),
-      "createdAt" TIMESTAMP DEFAULT NOW(),
-      "updatedAt" TIMESTAMP DEFAULT NOW()
-    )
-  `);
-  await query(`
-    CREATE TABLE IF NOT EXISTS candidates (
-      id VARCHAR(255) PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      party VARCHAR(255) NOT NULL,
-      "partyShort" VARCHAR(255) NOT NULL,
-      photo TEXT NOT NULL,
-      position VARCHAR(255) NOT NULL CHECK (position IN ('president', 'governor', 'senator', 'houseOfReps')),
-      "voteCount" INTEGER DEFAULT 0,
-      "createdAt" TIMESTAMP DEFAULT NOW(),
-      "updatedAt" TIMESTAMP DEFAULT NOW()
-    )
-  `);
-  await query(`
-    CREATE TABLE IF NOT EXISTS votes (
-      id SERIAL PRIMARY KEY,
-      voter_nin VARCHAR(255) NOT NULL REFERENCES voters(nin),
-      receipt_token VARCHAR(255) UNIQUE NOT NULL,
-      president VARCHAR(255),
-      governor VARCHAR(255),
-      senator VARCHAR(255),
-      house_of_reps VARCHAR(255),
-      timestamp TIMESTAMP DEFAULT NOW(),
-      "createdAt" TIMESTAMP DEFAULT NOW()
-    )
-  `);
-  await query("CREATE INDEX IF NOT EXISTS idx_voters_nin ON voters(nin)");
-  await query("CREATE INDEX IF NOT EXISTS idx_voters_email ON voters(email)");
-  await query("CREATE INDEX IF NOT EXISTS idx_candidates_position ON candidates(position)");
-  await query("CREATE INDEX IF NOT EXISTS idx_votes_receipt ON votes(receipt_token)");
-  await query("CREATE INDEX IF NOT EXISTS idx_votes_voter ON votes(voter_nin)");
-  await query('ALTER TABLE voters ADD COLUMN IF NOT EXISTS "isAdmin" BOOLEAN DEFAULT FALSE');
-  await query('ALTER TABLE voters ADD COLUMN IF NOT EXISTS "hasVoted" BOOLEAN DEFAULT FALSE');
-  await query('ALTER TABLE voters ADD COLUMN IF NOT EXISTS "votedAt" TIMESTAMP');
-  await query('ALTER TABLE voters ADD COLUMN IF NOT EXISTS "receiptToken" VARCHAR(255)');
-
-  const candidateCount = await query<{ total: string }>("SELECT COUNT(*) AS total FROM candidates");
-  if (Number.parseInt(candidateCount.rows[0]?.total ?? "0", 10) === 0) {
+export async function ensureDatabaseReady(): Promise<void> {
+  await prisma.$connect();
+  if (await prisma.candidate.count() === 0) {
     await initializeCandidates(defaultCandidates);
   }
-}
-
-export async function ensureDatabaseReady(): Promise<void> {
-  if (!globalDatabase.votingSchemaPromise) {
-    globalDatabase.votingSchemaPromise = createSchema().catch((error: unknown) => {
-      globalDatabase.votingSchemaPromise = undefined;
-      throw error;
-    });
-  }
-  await globalDatabase.votingSchemaPromise;
 }

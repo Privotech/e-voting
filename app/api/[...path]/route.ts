@@ -1,4 +1,3 @@
-import { randomInt } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import bcrypt from "bcryptjs";
@@ -10,7 +9,6 @@ import {
   ensureDatabaseReady,
   getCandidates,
   getResults,
-  getVoterByEmail,
   getVoterById,
   getVoterByNIN,
   getVoterCredentialsByEmail,
@@ -18,7 +16,6 @@ import {
   initializeCandidates,
   isAvailable,
   POSITIONS,
-  registerVoter,
   validateVoter,
   type BallotSelections,
   type Candidate,
@@ -32,6 +29,14 @@ type Body = Record<string, unknown>;
 interface VoterClaims {
   id: string;
   isAdmin: boolean;
+}
+
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error("JWT_SECRET must be configured with at least 32 characters.");
+  }
+  return secret;
 }
 
 class BadRequestError extends Error {}
@@ -61,7 +66,7 @@ function getClaims(request: NextRequest): VoterClaims | null {
   if (!token) return null;
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your_jwt_secret");
+    const decoded = jwt.verify(token, getJwtSecret());
     if (typeof decoded === "string" || !decoded.voter || typeof decoded.voter.id !== "string") {
       return null;
     }
@@ -78,8 +83,22 @@ function unauthorized(): NextResponse {
   return json({ message: "No token, authorization denied" }, 401);
 }
 
+function forbidden(): NextResponse {
+  return json({ success: false, message: "Administrator access is required." }, 403);
+}
+
+async function authorizeAdmin(request: NextRequest): Promise<NextResponse | null> {
+  const claims = getClaims(request);
+  if (!claims) return unauthorized();
+  if (!claims.isAdmin) return forbidden();
+
+  await ensureDatabaseReady();
+  const voter = await getVoterById(claims.id);
+  return voter?.isAdmin ? null : forbidden();
+}
+
 function signToken(voter: { id: string; isAdmin: boolean }): string {
-  return jwt.sign({ voter }, process.env.JWT_SECRET || "your_jwt_secret", { expiresIn: "5h" });
+  return jwt.sign({ voter }, getJwtSecret(), { expiresIn: "30m" });
 }
 
 function candidateFrom(value: unknown): Candidate | null {
@@ -152,23 +171,35 @@ async function handleRequest(request: NextRequest): Promise<NextResponse> {
 
   try {
     if (resource === "export" && method === "GET") {
+      const denied = await authorizeAdmin(request);
+      if (denied) return denied;
       if (action === "nextjs") return await exportProject("e-voting-nextjs-app.zip");
       if (action === "project") return await exportProject("e-voting-full-project.zip");
     }
 
     if (resource === "email" && action === "send-receipt" && method === "POST") {
+      const claims = getClaims(request);
+      if (!claims) return unauthorized();
       const body = await readBody(request);
-      const email = stringField(body, "email");
+      const email = stringField(body, "email")?.toLowerCase() ?? null;
       const receiptToken = stringField(body, "receiptToken");
       if (!email || !receiptToken) {
         return json({ success: false, message: "Please provide recipient email and receipt token." }, 400);
       }
 
+      await ensureDatabaseReady();
+      const voter = await getVoterById(claims.id);
+      const vote = await getVoteByReceiptToken(receiptToken);
+      if (!voter || !voter.email || voter.email.toLowerCase() !== email.toLowerCase() ||
+        vote?.voterNin !== voter.nin || voter.receiptToken !== receiptToken) {
+        return forbidden();
+      }
+
       const details = await sendReceiptEmail({
         email,
         receiptToken,
-        voterNIN: stringField(body, "voterNIN") || "12345678901",
-        voterName: stringField(body, "voterName") || "Voter",
+        voterNIN: voter.nin,
+        voterName: voter.name,
         timestamp: `${new Date().toLocaleString()} WAT`,
       });
       return json({ success: true, message: `Official voting receipt sent successfully to ${email}`, details });
@@ -178,9 +209,13 @@ async function handleRequest(request: NextRequest): Promise<NextResponse> {
       return json({ success: true, visible: getResultsVisibility() });
     }
     if (resource === "results" && action === "toggle-visibility" && method === "POST") {
+      const denied = await authorizeAdmin(request);
+      if (denied) return denied;
       return json({ success: true, visible: toggleResultsVisibility() });
     }
     if (resource === "results" && action === "set-visibility" && method === "POST") {
+      const denied = await authorizeAdmin(request);
+      if (denied) return denied;
       const body = await readBody(request);
       if (typeof body.visible !== "boolean") {
         return json({ success: false, message: "Please provide a boolean value for visibility." }, 400);
@@ -192,8 +227,11 @@ async function handleRequest(request: NextRequest): Promise<NextResponse> {
     await ensureDatabaseReady();
 
     if (resource === "auth" && method === "POST" && (action === "register" || action === "login")) {
+      if (action === "register") {
+        return json({ message: "Public account creation is disabled. Voter records must be provisioned by the election authority." }, 403);
+      }
       const body = await readBody(request);
-      const email = stringField(body, "email");
+      const email = stringField(body, "email")?.toLowerCase() ?? null;
       const password = stringField(body, "password");
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !password) {
         return json({ message: "A valid email and password are required." }, 400);
@@ -202,26 +240,15 @@ async function handleRequest(request: NextRequest): Promise<NextResponse> {
       if (action === "login") {
         const voter = await getVoterCredentialsByEmail(email);
         if (!voter || !(await bcrypt.compare(password, voter.password))) {
-          return json({ message: "Invalid credentials" }, 400);
+          return json({ message: "Invalid credentials" }, 401);
         }
-        return json({ token: signToken({ id: voter.id || voter.nin, isAdmin: voter.isAdmin }) });
+        return json({
+          token: signToken({ id: voter.id, isAdmin: voter.isAdmin }),
+          isAdmin: voter.isAdmin,
+          name: voter.name,
+          email: voter.email,
+        });
       }
-
-      const name = stringField(body, "name");
-      const nin = stringField(body, "nin");
-      const dob = stringField(body, "dob");
-      const state = stringField(body, "state");
-      if (!name || name.length < 3 || !nin || nin.length !== 16 || !dob || !state || password.length < 6) {
-        return json({ message: "Please provide valid registration details." }, 400);
-      }
-      if (await getVoterByEmail(email)) {
-        return json({ message: "Voter with that email already exists" }, 400);
-      }
-      if (await getVoterByNIN(nin)) {
-        return json({ message: "Voter with that NIN already exists" }, 400);
-      }
-      const voter = await registerVoter({ nin, name, dob, email, password, state });
-      return json({ token: signToken({ id: voter.id || voter.nin, isAdmin: voter.isAdmin }) });
     }
 
     if (resource === "voters" && action === "validate" && method === "POST") {
@@ -229,39 +256,32 @@ async function handleRequest(request: NextRequest): Promise<NextResponse> {
       const nin = stringField(body, "nin");
       const dob = stringField(body, "dob");
       const state = stringField(body, "state");
-      if (!nin || !dob || !state) {
-        return json({ success: false, message: "Please provide NIN, date of birth, and state." }, 400);
+      if (!nin || !/^\d{11}$/.test(nin) || !dob || !state) {
+        return json({ success: false, message: "Please provide an 11-digit NIN, date of birth, and state." }, 400);
       }
       const result = await validateVoter({ nin, dob, state });
-      return json(result, result.success ? 200 : 400);
+      if (!result.success || !result.voter) return json(result, 400);
+      return json({
+        ...result,
+        token: signToken({ id: result.voter.id, isAdmin: false }),
+      });
     }
 
     if (resource === "voters" && action === "register" && method === "POST") {
-      const body = await readBody(request);
-      const fullName = stringField(body, "fullName");
-      const nin = stringField(body, "nin");
-      const dob = stringField(body, "dob");
-      const state = stringField(body, "state");
-      const email = stringField(body, "email") || `${nin || ""}@evoting.local`;
-      const password = stringField(body, "password") || `Voter-${randomInt(100_000, 1_000_000)}`;
-      if (!nin || !/^\d{11}$/.test(nin)) {
-        return json({ success: false, message: "NIN must be exactly 11 digits." }, 400);
-      }
-      if (!fullName || !dob || !state) {
-        return json({ success: false, message: "Please provide all required fields." }, 400);
-      }
-      if (await getVoterByNIN(nin)) {
-        return json({ success: false, message: "This NIN is already registered." }, 400);
-      }
-      await registerVoter({ nin, name: fullName, dob, email, password, state });
-      return json({ success: true, message: "Registration successful! You can now login to vote." });
+      return json({
+        success: false,
+        message: "Public voter registration is disabled. Contact the election authority to be added to the verified voter roll.",
+      }, 403);
     }
 
     if (resource === "voters" && action === "status" && parameter && method === "GET") {
+      const claims = getClaims(request);
+      if (!claims) return unauthorized();
       const voter = await getVoterByNIN(parameter);
       if (!voter) {
         return json({ success: false, message: "Voter not found in registry." }, 404);
       }
+      if (voter.id !== claims.id) return forbidden();
       return json({
         success: true,
         nin: voter.nin,
@@ -280,13 +300,10 @@ async function handleRequest(request: NextRequest): Promise<NextResponse> {
     }
 
     if (resource === "voters" && action && method === "GET") {
-      const claims = getClaims(request);
-      if (!claims) return unauthorized();
+      const denied = await authorizeAdmin(request);
+      if (denied) return denied;
       const voter = await getVoterById(action) || await getVoterByNIN(action);
       if (!voter) return json({ success: false, message: "Voter not found" }, 404);
-      if (!claims.isAdmin) {
-        return json({ success: false, message: "Access denied: Not an administrator" }, 403);
-      }
       return json({ success: true, hasVoted: voter.hasVoted, votedAt: voter.votedAt, voter });
     }
 
@@ -297,6 +314,8 @@ async function handleRequest(request: NextRequest): Promise<NextResponse> {
       return json({ success: true, candidates: await getCandidates() });
     }
     if (resource === "candidates" && action === "initialize" && method === "POST") {
+      const denied = await authorizeAdmin(request);
+      if (denied) return denied;
       const body = await readBody(request);
       const candidates = Array.isArray(body.candidates) ? body.candidates.map(candidateFrom) : [];
       if (candidates.length === 0 || candidates.some((candidate) => candidate === null)) {
@@ -307,12 +326,18 @@ async function handleRequest(request: NextRequest): Promise<NextResponse> {
     }
 
     if (resource === "votes" && method === "POST" && !action) {
+      const claims = getClaims(request);
+      if (!claims) return unauthorized();
       const body = await readBody(request);
       const voterNIN = stringField(body, "voterNIN");
       const selections = body.selections;
-      if (!voterNIN || !selections || typeof selections !== "object" || Array.isArray(selections)) {
-        return json({ success: false, message: "Please provide voter NIN and selections." }, 400);
+      if (!voterNIN || !selections || typeof selections !== "object" || Array.isArray(selections) ||
+        Object.keys(selections).some((position) => !POSITIONS.includes(position as (typeof POSITIONS)[number])) ||
+        !POSITIONS.every((position) => typeof (selections as Record<string, unknown>)[position] === "string")) {
+        return json({ success: false, message: "Please provide a valid selection for every ballot position." }, 400);
       }
+      const voter = await getVoterById(claims.id);
+      if (!voter || voter.nin !== voterNIN) return forbidden();
       const result = await castBallot({
         voterNIN,
         selections: selections as BallotSelections,
@@ -370,6 +395,9 @@ async function handleRequest(request: NextRequest): Promise<NextResponse> {
     }
 
     if (resource === "results" && action === "turnout" && method === "GET") {
+      if (!getResultsVisibility()) {
+        return json({ success: false, message: "Results are not yet visible." }, 403);
+      }
       const report = await getResults();
       return json({ success: true, turnout: report.stats });
     }

@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { castVote as castVoteLocal, votedVoters, registerVoterAsVoted } from '../Utils/voterStateEngine';
 
 interface Selections {
   president: string | null;
@@ -99,20 +98,18 @@ export const useBallotStore = create<BallotStore>((set, get) => ({
       return { hasVoted: false, message: 'NIN is missing' };
     }
 
-    if (votedVoters && votedVoters.has(voterNIN)) {
-      set({ hasVotedStatus: true });
-      return {
-        hasVoted: true,
-        message: 'You have already voted according to local records. Duplicate voting is prohibited.',
-      };
+    const token = sessionStorage.getItem('voterAuthToken');
+    if (!token) {
+      return { hasVoted: true, message: 'Your voting session has expired. Please log in again.' };
     }
 
     try {
-      const response = await fetch(`/api/voters/status/${encodeURIComponent(voterNIN)}`);
+      const response = await fetch(`/api/voters/status/${encodeURIComponent(voterNIN)}`, {
+        headers: { 'x-auth-token': token },
+      });
       if (response.ok) {
         const data = await response.json();
         if (data.hasVoted) {
-          registerVoterAsVoted(voterNIN);
           set({ hasVotedStatus: true });
           return {
             hasVoted: true,
@@ -121,9 +118,11 @@ export const useBallotStore = create<BallotStore>((set, get) => ({
             message: 'You have already cast a ballot. Duplicate voting is strictly prohibited.',
           };
         }
+      } else if (response.status === 401 || response.status === 403) {
+        return { hasVoted: true, message: 'Your voting session has expired. Please log in again.' };
       }
-    } catch (err) {
-      console.warn('Backend double voting check fallback to local state:', err);
+    } catch {
+      return { hasVoted: false, message: 'Unable to verify your voting status. Please try again.' };
     }
 
     set({ hasVotedStatus: false });
@@ -152,17 +151,23 @@ export const useBallotStore = create<BallotStore>((set, get) => ({
 
     set({ isSubmitting: true, submissionError: null });
 
+    const token = sessionStorage.getItem('voterAuthToken');
+    if (!token) {
+      const message = 'Your voting session has expired. Please log in again.';
+      set({ submissionError: message });
+      return { success: false, message };
+    }
+
     try {
       const response = await fetch('/api/votes', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-auth-token': token },
         body: JSON.stringify({ voterNIN, selections }),
       });
 
       const data = await response.json();
 
       if (response.ok && data.success) {
-        registerVoterAsVoted(voterNIN);
         set({
           isSubmitting: false,
           castSuccess: true,
@@ -174,53 +179,14 @@ export const useBallotStore = create<BallotStore>((set, get) => ({
           receiptToken: data.receiptToken,
           message: data.message || 'Vote cast successfully!',
         };
-      } else {
-        const localResult = castVoteLocal(voterNIN, selections as unknown as Record<string, string>);
-        if (localResult.success) {
-          set({
-            isSubmitting: false,
-            castSuccess: true,
-            receiptToken: localResult.receiptToken,
-            hasVotedStatus: true,
-          });
-          return {
-            success: true,
-            receiptToken: localResult.receiptToken,
-            message: 'Vote cast successfully!',
-          };
-        }
-
-        set({
-          isSubmitting: false,
-          submissionError: data.message || localResult.message || 'Failed to submit vote.',
-        });
-        return {
-          success: false,
-          message: data.message || localResult.message || 'Failed to submit vote.',
-        };
       }
-    } catch (err) {
-      console.warn('API ballot submission fallback to local state engine:', err);
-      const localResult = castVoteLocal(voterNIN, selections as unknown as Record<string, string>);
-      if (localResult.success) {
-        set({
-          isSubmitting: false,
-          castSuccess: true,
-          receiptToken: localResult.receiptToken,
-          hasVotedStatus: true,
-        });
-        return {
-          success: true,
-          receiptToken: localResult.receiptToken,
-          message: 'Vote cast successfully!',
-        };
-      } else {
-        set({
-          isSubmitting: false,
-          submissionError: localResult.message || 'Network error occurred during vote casting.',
-        });
-        return { success: false, message: localResult.message || 'Network error.' };
-      }
+      const message = typeof data.message === 'string' ? data.message : 'Failed to submit vote.';
+      set({ isSubmitting: false, submissionError: message });
+      return { success: false, message };
+    } catch {
+      const message = 'Unable to submit your ballot. No vote was recorded; please try again.';
+      set({ isSubmitting: false, submissionError: message });
+      return { success: false, message };
     }
   },
 }));

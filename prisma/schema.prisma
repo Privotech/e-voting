@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Voter {
+  id          Int       @id @default(autoincrement())
+  nin         String    @unique @db.VarChar(255)
+  name        String    @db.VarChar(255)
+  email       String?   @unique @db.VarChar(255)
+  dob         String    @db.VarChar(255)
+  state       String    @db.VarChar(255)
+  password    String    @db.VarChar(255)
+  isAdmin     Boolean   @default(false)
+  hasVoted    Boolean   @default(false)
+  votedAt     DateTime? @db.Timestamp(6)
+  receiptToken String?  @db.VarChar(255)
+  createdAt   DateTime  @default(now()) @db.Timestamp(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamp(6)
+  votes       Vote[]
+
+  @@map("voters")
+}
+
+model Candidate {
+  id        String   @id @db.VarChar(255)
+  name      String   @db.VarChar(255)
+  party     String   @db.VarChar(255)
+  partyShort String  @default("") @db.VarChar(255)
+  photo     String
+  position  String   @db.VarChar(255)
+  voteCount Int      @default(0)
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamp(6)
+
+  @@index([position])
+  @@map("candidates")
+}
+
+model Vote {
+  id          Int      @id @default(autoincrement())
+  voterNin    String   @map("voter_nin") @db.VarChar(255)
+  receiptToken String  @unique @map("receipt_token") @db.VarChar(255)
+  president   String?  @db.VarChar(255)
+  governor    String?  @db.VarChar(255)
+  senator     String?  @db.VarChar(255)
+  houseOfReps String?  @map("house_of_reps") @db.VarChar(255)
+  timestamp   DateTime @default(now()) @db.Timestamp(6)
+  createdAt   DateTime @default(now()) @db.Timestamp(6)
+  voter       Voter    @relation(fields: [voterNin], references: [nin], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([voterNin])
+  @@map("votes")
+}

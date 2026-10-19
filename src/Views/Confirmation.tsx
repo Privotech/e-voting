@@ -40,11 +40,15 @@ export default function Confirmation() {
 
     setIsSendingEmail(true);
     try {
+      const authToken = sessionStorage.getItem("voterAuthToken");
+      if (!authToken) {
+        throw new Error("Your voter session has expired. Log in again to send a receipt.");
+      }
       const response = await axios.post("/api/email/send-receipt", {
         email,
         receiptToken,
-        voterNIN: voter,
-        voterName: "Verified Voter"
+      }, {
+        headers: { "x-auth-token": authToken },
       });
 
       if (response.data && response.data.success) {
@@ -53,14 +57,13 @@ export default function Confirmation() {
         setLastSentEmail(email);
         sessionStorage.setItem("voterEmail", email);
       } else {
-        toast.success(`Official receipt queued for ${email}`);
-        setEmailSentSuccess(true);
-        setLastSentEmail(email);
+        throw new Error(response.data?.message || "Receipt email could not be sent.");
       }
-    } catch {
-      toast.success(`Official election receipt dispatched to ${email}`);
-      setEmailSentSuccess(true);
-      setLastSentEmail(email);
+    } catch (error) {
+      const message = axios.isAxiosError(error)
+        ? error.response?.data?.message || "Receipt email could not be sent. Please try again."
+        : error instanceof Error ? error.message : "Receipt email could not be sent. Please try again.";
+      toast.error(message);
     } finally {
       setIsSendingEmail(false);
     }

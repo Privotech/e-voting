@@ -17,13 +17,14 @@ A TypeScript e-voting application built with the Next.js App Router, React, and 
    npm install
    ```
 
-2. Configure PostgreSQL in `.env.local`:
+2. Configure PostgreSQL in `.env`:
    ```bash
    DATABASE_URL=postgresql://...
    JWT_SECRET=replace-with-a-long-random-secret
    ```
 
    `NEON_DATABASE_URL` is also supported in place of `DATABASE_URL`.
+   Use a randomly generated `JWT_SECRET` of at least 32 characters. Never expose either value to client-side code.
 
 3. Start the development app:
    ```bash
@@ -37,3 +38,10 @@ A TypeScript e-voting application built with the Next.js App Router, React, and 
    ```
 
 Open [http://localhost:3000](http://localhost:3000). API endpoints are implemented under `app/api/`; the database schema is initialized automatically when an API first connects to PostgreSQL.
+
+## Authentication and voter provisioning
+
+- Voter validation checks the PostgreSQL voter registry and issues a short-lived signed token. Ballot submission and voter status checks require that token.
+- Public voter and administrator self-registration are disabled. Voter records and administrator accounts must be provisioned through a trusted, out-of-band process; administrator privileges are determined by the database `Voter.isAdmin` field.
+- Administrator-only API operations re-check the account's current database role. Demo credentials and client-side ballot fallbacks are not accepted.
+- Do not use this demo application for a binding public election without independent security review, operational controls, rate limiting, audit procedures, and end-to-end election testing.

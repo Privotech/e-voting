@@ -1,13 +1,12 @@
 import { create } from 'zustand';
-import { validateVoter } from '../Utils/voterData';
-import { validateSessionTimestamp, sanitizeSessionData } from '../Utils/authSecurity';
-import securityConfig from '../Utils/securityConfig';
+import { sanitizeSessionData } from '../Utils/authSecurity';
 
 interface VoterSession {
   nin: string;
   dob: string;
   state: string;
   fullName?: string;
+  token: string;
 }
 
 interface VoterStore {
@@ -24,7 +23,8 @@ const getInitialVoterSession = (): VoterSession | null => {
     const nin = sessionStorage.getItem('voterNIN');
     const dob = sessionStorage.getItem('voterDOB');
     const state = sessionStorage.getItem('voterState');
-    if (!nin || !dob || !state) return null;
+    const token = sessionStorage.getItem('voterAuthToken');
+    if (!nin || !dob || !state || !token) return null;
 
     const data = { nin, dob, state };
     const sanitized = sanitizeSessionData(data);
@@ -34,6 +34,7 @@ const getInitialVoterSession = (): VoterSession | null => {
       dob: sanitized.dob,
       state: sanitized.state,
       fullName: sanitized.fullName,
+      token,
     };
   } catch {
     return null;
@@ -68,31 +69,30 @@ export const useVoterStore = create<VoterStore>((set) => ({
         body: JSON.stringify({ nin: sanitizedNin, dob: sanitizedDob, state: sanitizedState }),
       });
       const data = await response.json();
-      if (response.ok && data.success) {
-        const voterData = { nin: sanitizedNin, dob: sanitizedDob, state: sanitizedState, ...data.voter };
+      if (response.ok && data.success && typeof data.token === 'string') {
+        const voterData = {
+          nin: sanitizedNin,
+          dob: sanitizedDob,
+          state: sanitizedState,
+          fullName: data.voter?.fullName,
+          token: data.token,
+        };
         set({ voter: voterData, loading: false });
         sessionStorage.setItem('voterNIN', sanitizedNin);
         sessionStorage.setItem('voterDOB', sanitizedDob);
         sessionStorage.setItem('voterState', sanitizedState);
+        sessionStorage.setItem('voterAuthToken', data.token);
         return data;
-      } else if (data.message) {
-        set({ error: data.message, loading: false });
-        return { success: false, message: data.message };
+      } else {
+        const message = typeof data.message === 'string' ? data.message : 'Voter authentication failed.';
+        set({ error: message, loading: false });
+        return { success: false, message };
       }
-    } catch (error) {
-      console.warn('API validation failed, attempting local voterStore check');
+    } catch {
+      const message = 'Unable to reach the voter registry. Please try again.';
+      set({ error: message, loading: false });
+      return { success: false, message };
     }
-
-    const localResult = validateVoter(sanitizedNin, sanitizedDob, sanitizedState);
-    if (localResult.success) {
-      set({ voter: { nin: sanitizedNin, dob: sanitizedDob, state: sanitizedState }, loading: false });
-      sessionStorage.setItem('voterNIN', sanitizedNin);
-      sessionStorage.setItem('voterDOB', sanitizedDob);
-      sessionStorage.setItem('voterState', sanitizedState);
-    } else {
-      set({ error: localResult.message, loading: false });
-    }
-    return localResult;
   },
 
   logout: () => {
@@ -100,6 +100,7 @@ export const useVoterStore = create<VoterStore>((set) => ({
     sessionStorage.removeItem('voterNIN');
     sessionStorage.removeItem('voterDOB');
     sessionStorage.removeItem('voterState');
+    sessionStorage.removeItem('voterAuthToken');
   },
 
   refreshSession: () => {
@@ -109,6 +110,7 @@ export const useVoterStore = create<VoterStore>((set) => ({
       sessionStorage.removeItem('voterNIN');
       sessionStorage.removeItem('voterDOB');
       sessionStorage.removeItem('voterState');
+      sessionStorage.removeItem('voterAuthToken');
     }
   }
 }));
