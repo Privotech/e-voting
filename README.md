@@ -42,6 +42,6 @@ Open [http://localhost:3000](http://localhost:3000). API endpoints are implement
 ## Authentication and voter provisioning
 
 - Voter validation checks the PostgreSQL voter registry and issues a short-lived signed token. Ballot submission and voter status checks require that token.
-- Public voter and administrator self-registration are disabled. Voter records and administrator accounts must be provisioned through a trusted, out-of-band process; administrator privileges are determined by the database `Voter.isAdmin` field.
+- Public voter self-registration is enabled. Registration stores the submitted details in the voter database but does not verify identity or NIN against an authoritative registry. Administrator self-registration remains disabled; administrator privileges are determined by the database `Voter.isAdmin` field.
 - Administrator-only API operations re-check the account's current database role. Demo credentials and client-side ballot fallbacks are not accepted.
-- Do not use this demo application for a binding public election without independent security review, operational controls, rate limiting, audit procedures, and end-to-end election testing.
+- Public registration is suitable only for a demo: anyone can submit voter details, and the app does not independently verify identity or NIN. Do not use this configuration for a binding public election without independent security review, authoritative voter verification, operational controls, rate limiting, audit procedures, and end-to-end election testing.

@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import bcrypt from "bcryptjs";
 import JSZip from "jszip";
@@ -16,6 +17,7 @@ import {
   initializeCandidates,
   isAvailable,
   POSITIONS,
+  registerVoter,
   validateVoter,
   type BallotSelections,
   type Candidate,
@@ -268,10 +270,40 @@ async function handleRequest(request: NextRequest): Promise<NextResponse> {
     }
 
     if (resource === "voters" && action === "register" && method === "POST") {
-      return json({
-        success: false,
-        message: "Public voter registration is disabled. Contact the election authority to be added to the verified voter roll.",
-      }, 403);
+      const body = await readBody(request);
+      const name = stringField(body, "fullName");
+      const nin = stringField(body, "nin");
+      const dob = stringField(body, "dob");
+      const state = stringField(body, "state");
+      if (!name || name.length < 2 || name.length > 255 || !nin || !/^\d{11}$/.test(nin) || !dob || !state) {
+        return json({ success: false, message: "Please provide a name, an 11-digit NIN, date of birth, and state." }, 400);
+      }
+      const birthDate = new Date(`${dob}T00:00:00.000Z`);
+      if (Number.isNaN(birthDate.getTime()) || birthDate.toISOString().slice(0, 10) !== dob) {
+        return json({ success: false, message: "Please provide a valid date of birth." }, 400);
+      }
+      if (birthDate > new Date()) {
+        return json({ success: false, message: "Date of birth cannot be in the future." }, 400);
+      }
+      try {
+        await ensureDatabaseReady();
+        if (await getVoterByNIN(nin)) {
+          return json({ success: false, message: "This NIN is already registered. Please log in instead." }, 409);
+        }
+        const voter = await registerVoter({
+          nin,
+          name,
+          dob,
+          state,
+          password: randomBytes(32).toString("hex"),
+        });
+        return json({ success: true, message: "Voter profile registered successfully.", voter: { id: voter.id, nin: voter.nin } }, 201);
+      } catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
+          return json({ success: false, message: "This NIN is already registered. Please log in instead." }, 409);
+        }
+        throw error;
+      }
     }
 
     if (resource === "voters" && action === "status" && parameter && method === "GET") {

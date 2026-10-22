@@ -102,7 +102,7 @@ export default function Signup() {
         <div className="auth-header">
           <div className="auth-badge">Electoral Registry</div>
           <h1 className="auth-title">Voter Registration</h1>
-          <p className="auth-subtitle">Register your National Identification Number to join the official voter roll.</p>
+          <p className="auth-subtitle">Create a voter profile. Details submitted here are not verified against an official voter registry.</p>
         </div>
 
         {success ? (

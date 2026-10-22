@@ -93,7 +93,7 @@ export async function registerVoter(input: {
   nin: string;
   name: string;
   dob: string;
-  email: string;
+  email?: string | null;
   password: string;
   state: string;
   isAdmin?: boolean;
@@ -104,7 +104,7 @@ export async function registerVoter(input: {
       nin: input.nin,
       name: input.name,
       dob: input.dob,
-      email: input.email,
+      email: input.email || null,
       password: hashedPassword,
       state: input.state,
       isAdmin: input.isAdmin ?? false,
